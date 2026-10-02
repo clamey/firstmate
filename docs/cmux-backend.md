@@ -71,6 +71,11 @@ The home label is `firstmate` or `2ndmate-<id>` plus a stable short hash of the 
 cmux does not enforce title uniqueness, so create, recovery, list, and cleanup paths all validate this scoped title.
 Relocating the Firstmate installation changes the hash and leaves old titles unmatched, consistent with recorded worktree paths also becoming stale.
 
+Spawn resolves the new workspace only from the `OK workspace:<n>` ref that `new-workspace` prints, retrying that ref lookup up to 15 times, 0.2s apart, while cmux registers the workspace.
+A scoped-title lookup after creation was deliberately dropped by the captain: titles are not unique, so a concurrent client's workspace could match, and a lookup right after creation raced cmux's title registration.
+If no ref is printed or it never resolves, spawn fails, closes nothing, and names the leftover workspace title for manual cleanup.
+If the workspace resolves but its default surface does not, spawn closes it through the normal uuid close path described under "Current operation and safety".
+
 ```text
 backend=cmux
 window=<workspace-uuid>:<surface-uuid>

@@ -23,8 +23,8 @@ TMP_ROOT=$(fm_test_tmproot fm-backend-cmux-tests)
 # reads 1.out, call 2 reads 2.out, ...), mirroring
 # tests/fm-backend-zellij.test.sh's make_zellij_fakebin. A missing response
 # file means "succeed with empty stdout" (send/send-key/close-* print
-# little on success on the real CLI, and new-workspace's printed
-# `OK workspace:<n>` ref is optional to the adapter). `version` and `ping` are
+# little on success on the real CLI; create_task tests supply
+# new-workspace's printed `OK workspace:<n>` ref explicitly). `version` and `ping` are
 # handled specially (not call-counted, not consuming the ordered response
 # queue) since fm_backend_cmux_version_check/fm_backend_cmux_ping_state are
 # called at points a test may not want to hand-count, exactly mirroring
@@ -480,9 +480,10 @@ test_create_task_creates_and_parses_ids() {
   title=$(cmux_expected_scoped_title fm-newtask)
   # 1: workspace list --json (pre-create duplicate check) -> no match
   printf '{"workspaces":[]}' > "$dir/responses/1.out"
-  # 2: new-workspace (silent on success)
-  # 3: workspace list --json (post-create id resolution) -> match
-  cmux_workspace_list_response "$dir" 3 "bbbbbbbb-1111-1111-1111-111111111111" "$title"
+  # 2: new-workspace prints the created ref
+  printf 'OK workspace:31\n' > "$dir/responses/2.out"
+  # 3: workspace list --id-format both (post-create ref resolution) -> match
+  printf '{"workspaces":[{"id":"bbbbbbbb-1111-1111-1111-111111111111","ref":"workspace:31","title":"%s"}]}' "$title" > "$dir/responses/3.out"
   # 4: list-panes --json --id-format uuids -> default surface id
   cmux_panes_response "$dir" 4 "cccccccc-2222-2222-2222-222222222222"
   fb=$(make_cmux_fakebin "$dir")
@@ -522,131 +523,99 @@ test_create_task_resolves_printed_ref_before_title_registers() {
   pass "fm_backend_cmux_create_task: resolves the new workspace from the ref new-workspace prints, not a racing title lookup"
 }
 
-# Fallback when no ref is printed: the title lookup is empty on the first call
-# after creation and succeeds on a bounded retry.
-test_create_task_retries_title_lookup_after_creation() {
-  local dir fb out title
+# The printed ref can lag in `workspace list` right after creation; the ref
+# lookup is retried within its bound.
+test_create_task_retries_printed_ref_lookup_after_creation() {
+  local dir fb out
   dir="$TMP_ROOT/create-task-retry"; mkdir -p "$dir/responses"
-  title=$(cmux_expected_scoped_title fm-retrytask)
   printf '{"workspaces":[]}' > "$dir/responses/1.out"
-  # 2: new-workspace prints no ref
-  # 3: first post-create title lookup -> title not registered yet
+  printf 'OK workspace:33\n' > "$dir/responses/2.out"
+  # 3: first ref lookup -> not listed yet
   printf '{"workspaces":[]}' > "$dir/responses/3.out"
-  # 4: retried title lookup -> match
-  cmux_workspace_list_response "$dir" 4 "bbbbbbbb-1111-1111-1111-111111111111" "$title"
+  # 4: retried ref lookup -> listed
+  printf '{"workspaces":[{"id":"bbbbbbbb-1111-1111-1111-111111111111","ref":"workspace:33","title":"Terminal"}]}' > "$dir/responses/4.out"
   cmux_panes_response "$dir" 5 "cccccccc-2222-2222-2222-222222222222"
   fb=$(make_cmux_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" \
     bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_create_task fm-retrytask /tmp/proj' "$ROOT" )
   [ "$out" = "bbbbbbbb-1111-1111-1111-111111111111 cccccccc-2222-2222-2222-222222222222" ] \
-    || fail "create_task should retry an empty post-create title lookup, got '$out'"
-  pass "fm_backend_cmux_create_task: retries an empty title lookup right after creation"
+    || fail "create_task should retry an empty post-create ref lookup, got '$out'"
+  pass "fm_backend_cmux_create_task: retries the printed ref lookup right after creation"
 }
 
-# A printed ref that never resolves still falls back to the title lookup in
-# each attempt, so the workspace resolves once its title is listed.
-test_create_task_falls_back_to_title_when_printed_ref_unresolved() {
-  local dir fb out title
-  dir="$TMP_ROOT/create-task-bad-ref"; mkdir -p "$dir/responses"
-  title=$(cmux_expected_scoped_title fm-badref)
-  printf '{"workspaces":[]}' > "$dir/responses/1.out"
-  # 2: new-workspace prints a ref that the workspace list never carries
-  printf 'OK workspace:50\n' > "$dir/responses/2.out"
-  # 3: ref lookup (--id-format both) -> no workspace with that ref
-  printf '{"workspaces":[{"id":"dddddddd-3333-3333-3333-333333333333","ref":"workspace:7","title":"other"}]}' > "$dir/responses/3.out"
-  # 4: title lookup in the same attempt -> match
-  cmux_workspace_list_response "$dir" 4 "bbbbbbbb-1111-1111-1111-111111111111" "$title"
-  cmux_panes_response "$dir" 5 "cccccccc-2222-2222-2222-222222222222"
-  fb=$(make_cmux_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" \
-    bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_create_task fm-badref /tmp/proj' "$ROOT" )
-  [ "$out" = "bbbbbbbb-1111-1111-1111-111111111111 cccccccc-2222-2222-2222-222222222222" ] \
-    || fail "create_task should fall back to the title when the printed ref does not resolve, got '$out'"
-  assert_not_contains "$(cat "$dir/log")" $'\x1f''close-workspace' \
-    "create_task closed a workspace that resolved by title"
-  pass "fm_backend_cmux_create_task: falls back to the title lookup when the printed ref never resolves"
-}
-
-# Creation succeeded but no lookup ever resolves it: the new workspace is
-# closed by its printed ref so a retry is not refused on a duplicate title.
-test_create_task_closes_unresolved_workspace() {
-  local dir fb out status
+# A printed ref that never resolves fails the spawn. Every lookup lists a
+# workspace with the matching title under another ref, proving a title match
+# is neither used to resolve nor to close (cmux titles are not unique, so it
+# could be another client's workspace); the error names the leftover title.
+test_create_task_names_leftover_title_when_ref_never_resolves() {
+  local dir fb out status title n
   dir="$TMP_ROOT/create-task-unresolved"; mkdir -p "$dir/responses"
+  title=$(cmux_expected_scoped_title fm-lost)
   printf '{"workspaces":[]}' > "$dir/responses/1.out"
   printf 'OK workspace:41\n' > "$dir/responses/2.out"
+  n=3
+  while [ "$n" -le 17 ]; do
+    printf '{"workspaces":[{"id":"dddddddd-3333-3333-3333-333333333333","ref":"workspace:7","title":"%s"}]}' "$title" > "$dir/responses/$n.out"
+    n=$((n + 1))
+  done
   fb=$(make_cmux_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" \
     bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_create_task fm-lost /tmp/proj' "$ROOT" 2>&1 )
   status=$?
-  [ "$status" -ne 0 ] || fail "create_task should fail when the new workspace never resolves"
+  [ "$status" -ne 0 ] || fail "create_task should fail when the printed ref never resolves"
   assert_contains "$out" "could not resolve a cmux workspace id" "create_task did not report the resolution failure"
-  assert_contains "$(cat "$dir/log")" $'\x1f''close-workspace'$'\x1f''--workspace'$'\x1f''workspace:41' \
-    "create_task did not close the workspace it just created after resolution failed"
-  pass "fm_backend_cmux_create_task: closes the just-created workspace when its id never resolves"
+  assert_contains "$out" "close the leftover cmux workspace '$title' by hand" \
+    "create_task did not name the leftover workspace title"
+  assert_not_contains "$(cat "$dir/log")" $'\x1f''close-workspace' \
+    "create_task closed a workspace it never resolved from the printed ref"
+  pass "fm_backend_cmux_create_task: an unresolved printed ref closes nothing and names the leftover workspace title"
 }
 
-# No ref printed and the title never resolves within the bounded retry: a
-# title lookup is never trusted for a close (cmux titles are not unique, so a
-# late match could be another client's workspace), so nothing is closed and
-# the error names the exact leftover title for manual cleanup. Call 18 lists
-# a matching title to prove no extra lookup-then-close happens after the retry.
+# No ref printed: the spawn fails at once without any title lookup or close,
+# even though a matching title is listed, and names the leftover title.
 test_create_task_names_leftover_title_without_ref() {
   local dir fb out status title
   dir="$TMP_ROOT/create-task-no-ref-lost"; mkdir -p "$dir/responses"
   title=$(cmux_expected_scoped_title fm-gone)
   printf '{"workspaces":[]}' > "$dir/responses/1.out"
-  # 2: new-workspace prints no ref; 3-17: the 15 bounded title lookups -> empty
-  cmux_workspace_list_response "$dir" 18 "bbbbbbbb-1111-1111-1111-111111111111" "$title"
+  # 2: new-workspace prints no ref; 3: a title match that must not be used
+  cmux_workspace_list_response "$dir" 3 "bbbbbbbb-1111-1111-1111-111111111111" "$title"
   fb=$(make_cmux_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" \
     bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_create_task fm-gone /tmp/proj' "$ROOT" 2>&1 )
   status=$?
-  [ "$status" -ne 0 ] || fail "create_task should fail when the new workspace never resolves"
+  [ "$status" -ne 0 ] || fail "create_task should fail when new-workspace prints no ref"
   assert_contains "$out" "close the leftover cmux workspace '$title' by hand" \
     "create_task did not name the leftover workspace title"
-  assert_not_contains "$(cat "$dir/log")" $'\x1f''close-workspace' \
-    "create_task closed a workspace it holds no printed ref for"
-  pass "fm_backend_cmux_create_task: without a printed ref, closes nothing and names the leftover workspace title"
+  [ "$(wc -l < "$dir/log" | tr -d ' ')" = 2 ] \
+    || fail "create_task looked up or closed a workspace after creation without a printed ref: $(cat "$dir/log")"
+  pass "fm_backend_cmux_create_task: without a printed ref, fails at once, closes nothing, and names the leftover title"
 }
 
-# Workspace resolves but its surface does not: the workspace is closed too,
-# by its printed ref.
-test_create_task_closes_workspace_when_surface_unresolved() {
-  local dir fb out status
+# Workspace resolves from its ref but its surface does not, and it is the
+# only workspace in its window: cleanup goes through the uuid close path, so
+# the throwaway sibling is added first and the close actually takes effect.
+test_create_task_closes_last_in_window_workspace_when_surface_unresolved() {
+  local dir fb status
   dir="$TMP_ROOT/create-task-nosurface"; mkdir -p "$dir/responses"
   printf '{"workspaces":[]}' > "$dir/responses/1.out"
   printf 'OK workspace:42\n' > "$dir/responses/2.out"
   printf '{"workspaces":[{"id":"bbbbbbbb-1111-1111-1111-111111111111","ref":"workspace:42","title":"x"}]}' > "$dir/responses/3.out"
   cmux_panes_empty_response "$dir" 4
+  # 5: list-windows; 6: workspace list --window -> only the new workspace
+  cmux_windows_response "$dir" 5 "eeeeeeee-0000-0000-0000-000000000000" 1
+  cmux_workspace_list_response "$dir" 6 "bbbbbbbb-1111-1111-1111-111111111111" "x"
   fb=$(make_cmux_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" \
-    bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_create_task fm-nosurf /tmp/proj' "$ROOT" 2>&1 )
+  PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" \
+    bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_create_task fm-nosurf /tmp/proj' "$ROOT" >/dev/null 2>&1
   status=$?
   [ "$status" -ne 0 ] || fail "create_task should fail when the default surface never resolves"
-  assert_contains "$(cat "$dir/log")" $'\x1f''close-workspace'$'\x1f''--workspace'$'\x1f''workspace:42' \
-    "create_task did not close the new workspace by its printed ref after surface resolution failed"
-  pass "fm_backend_cmux_create_task: closes the new workspace when its default surface never resolves"
-}
-
-# Without a printed ref the workspace uuid came from a title lookup, so a
-# surface failure closes nothing and names the leftover title instead.
-test_create_task_names_leftover_title_when_surface_unresolved_without_ref() {
-  local dir fb out status title
-  dir="$TMP_ROOT/create-task-nosurface-no-ref"; mkdir -p "$dir/responses"
-  title=$(cmux_expected_scoped_title fm-nosurf2)
-  printf '{"workspaces":[]}' > "$dir/responses/1.out"
-  cmux_workspace_list_response "$dir" 3 "bbbbbbbb-1111-1111-1111-111111111111" "$title"
-  cmux_panes_empty_response "$dir" 4
-  fb=$(make_cmux_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" \
-    bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_create_task fm-nosurf2 /tmp/proj' "$ROOT" 2>&1 )
-  status=$?
-  [ "$status" -ne 0 ] || fail "create_task should fail when the default surface never resolves"
-  assert_contains "$out" "close the leftover cmux workspace '$title' by hand" \
-    "create_task did not name the leftover workspace title"
-  assert_not_contains "$(cat "$dir/log")" $'\x1f''close-workspace' \
-    "create_task closed a title-resolved workspace it holds no printed ref for"
-  pass "fm_backend_cmux_create_task: without a printed ref, a surface failure closes nothing and names the leftover title"
+  cmux_assert_call_order "$dir/log" $'\x1f''new-workspace'$'\x1f''--window'$'\x1f''eeeeeeee-0000-0000-0000-000000000000' \
+    $'\x1f''close-workspace'$'\x1f''--workspace'$'\x1f''bbbbbbbb-1111-1111-1111-111111111111' \
+    "create_task did not add the sibling and then close the last-in-window workspace by uuid"
+  assert_not_contains "$(cat "$dir/log")" $'\x1f''close-workspace'$'\x1f''--workspace'$'\x1f''workspace:42' \
+    "create_task closed by raw ref instead of the uuid close path"
+  pass "fm_backend_cmux_create_task: a surface failure closes the new workspace through the uuid path, even when last in its window"
 }
 
 # --- target_ready / capture ---------------------------------------------------
@@ -1284,12 +1253,10 @@ test_ensure_running_fails_fast_on_unauth_without_launching
 test_create_task_refuses_duplicate_label
 test_create_task_creates_and_parses_ids
 test_create_task_resolves_printed_ref_before_title_registers
-test_create_task_retries_title_lookup_after_creation
-test_create_task_falls_back_to_title_when_printed_ref_unresolved
-test_create_task_closes_unresolved_workspace
+test_create_task_retries_printed_ref_lookup_after_creation
+test_create_task_names_leftover_title_when_ref_never_resolves
 test_create_task_names_leftover_title_without_ref
-test_create_task_closes_workspace_when_surface_unresolved
-test_create_task_names_leftover_title_when_surface_unresolved_without_ref
+test_create_task_closes_last_in_window_workspace_when_surface_unresolved
 test_target_ready_fails_when_target_absent
 test_target_ready_checks_expected_label
 test_target_ready_rejects_label_mismatch
