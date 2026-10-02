@@ -1,0 +1,5 @@
+$ cmux version
+cmux 0.64.25 (106) [b685a275c]
+$ cmux ping
+Error: ERROR: Access denied - only processes started inside cmux can connect
+exit=1
