@@ -390,8 +390,10 @@ fm_backend_cmux_resolve_created_workspace() {  # <ref-or-empty>
 # needed). --focus false is passed for defense in depth though verified to
 # already be the default (finding: workspace/surface/pane create all default
 # focus to false) - no focus-restore dance is needed, unlike zellij. When
-# creation succeeds but the printed ref is missing or never resolves, nothing
-# is closed (only a ref-resolved uuid is trusted for a close) and the error
+# creation succeeds but the printed ref never resolves, the workspace is
+# closed best-effort by that printed ref, and the error names the leftover
+# title only if that close does not report success. Without a printed ref,
+# nothing is closed (a title match is never trusted for a close) and the error
 # names the leftover title. When the surface fails to resolve, the
 # ref-resolved workspace is closed by uuid through
 # fm_backend_cmux_close_workspace, so a retry is not refused on its leftover
@@ -411,7 +413,11 @@ fm_backend_cmux_create_task() {  # <label> <cwd>
   }
   ref=$(fm_backend_cmux_created_workspace_ref "$out")
   wsid=$(fm_backend_cmux_resolve_created_workspace "$ref") || {
-    echo "error: could not resolve a cmux workspace id for '$title' after creation; close the leftover cmux workspace '$title' by hand" >&2
+    if [ -n "$ref" ] && fm_backend_cmux_cli close-workspace --workspace "$ref" >/dev/null 2>&1; then
+      echo "error: could not resolve a cmux workspace id for '$title' after creation" >&2
+    else
+      echo "error: could not resolve a cmux workspace id for '$title' after creation; close the leftover cmux workspace '$title' by hand" >&2
+    fi
     return 1
   }
   sfid=$(fm_backend_cmux_surface_id_for_workspace "$wsid")

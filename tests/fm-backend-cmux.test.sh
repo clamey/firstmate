@@ -543,13 +543,13 @@ test_create_task_retries_printed_ref_lookup_after_creation() {
   pass "fm_backend_cmux_create_task: retries the printed ref lookup right after creation"
 }
 
-# A printed ref that never resolves fails the spawn. Every lookup lists a
-# workspace with the matching title under another ref, proving a title match
-# is neither used to resolve nor to close (cmux titles are not unique, so it
-# could be another client's workspace); the error names the leftover title.
-test_create_task_names_leftover_title_when_ref_never_resolves() {
-  local dir fb out status title n
-  dir="$TMP_ROOT/create-task-unresolved"; mkdir -p "$dir/responses"
+# Printed ref never resolves (a same-titled workspace under another ref is
+# listed every attempt and must not be touched): the spawn fails after a
+# best-effort close of the printed ref. <close-exit> is the close's exit code;
+# the leftover title is named only when that close does not report success.
+cmux_run_create_task_ref_never_resolves() {  # <dir> <close-exit> -> sets out/status/title
+  local dir=$1 fb n
+  mkdir -p "$dir/responses"
   title=$(cmux_expected_scoped_title fm-lost)
   printf '{"workspaces":[]}' > "$dir/responses/1.out"
   printf 'OK workspace:41\n' > "$dir/responses/2.out"
@@ -558,17 +558,37 @@ test_create_task_names_leftover_title_when_ref_never_resolves() {
     printf '{"workspaces":[{"id":"dddddddd-3333-3333-3333-333333333333","ref":"workspace:7","title":"%s"}]}' "$title" > "$dir/responses/$n.out"
     n=$((n + 1))
   done
+  # 18: close-workspace --workspace workspace:41
+  printf '%s' "$2" > "$dir/responses/18.exit"
   fb=$(make_cmux_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" \
     bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_create_task fm-lost /tmp/proj' "$ROOT" 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "create_task should fail when the printed ref never resolves"
   assert_contains "$out" "could not resolve a cmux workspace id" "create_task did not report the resolution failure"
+  cmux_assert_call_order "$dir/log" $'\x1f''new-workspace' \
+    $'\x1f''close-workspace'$'\x1f''--workspace'$'\x1f''workspace:41' \
+    "create_task did not close the unresolved workspace by its printed ref"
+  assert_not_contains "$(cat "$dir/log")" 'dddddddd-3333-3333-3333-333333333333' \
+    "create_task touched a same-titled workspace it never resolved from the printed ref"
+  [ "$(wc -l < "$dir/log" | tr -d ' ')" = 18 ] \
+    || fail "create_task made unexpected calls after the ref close: $(cat "$dir/log")"
+}
+
+test_create_task_closes_unresolved_workspace_by_printed_ref() {
+  local out status title
+  cmux_run_create_task_ref_never_resolves "$TMP_ROOT/create-task-unresolved" 0
+  assert_not_contains "$out" "by hand" \
+    "create_task asked for a manual close although the ref close reported success"
+  pass "fm_backend_cmux_create_task: an unresolved printed ref is closed by that ref, with no manual-cleanup note"
+}
+
+test_create_task_names_leftover_title_when_ref_close_fails() {
+  local out status title
+  cmux_run_create_task_ref_never_resolves "$TMP_ROOT/create-task-unresolved-close-fails" 1
   assert_contains "$out" "close the leftover cmux workspace '$title' by hand" \
-    "create_task did not name the leftover workspace title"
-  assert_not_contains "$(cat "$dir/log")" $'\x1f''close-workspace' \
-    "create_task closed a workspace it never resolved from the printed ref"
-  pass "fm_backend_cmux_create_task: an unresolved printed ref closes nothing and names the leftover workspace title"
+    "create_task did not name the leftover workspace title after the ref close failed"
+  pass "fm_backend_cmux_create_task: when the printed-ref close fails, the error names the leftover workspace title"
 }
 
 # No ref printed: the spawn fails at once without any title lookup or close,
@@ -1254,7 +1274,8 @@ test_create_task_refuses_duplicate_label
 test_create_task_creates_and_parses_ids
 test_create_task_resolves_printed_ref_before_title_registers
 test_create_task_retries_printed_ref_lookup_after_creation
-test_create_task_names_leftover_title_when_ref_never_resolves
+test_create_task_closes_unresolved_workspace_by_printed_ref
+test_create_task_names_leftover_title_when_ref_close_fails
 test_create_task_names_leftover_title_without_ref
 test_create_task_closes_last_in_window_workspace_when_surface_unresolved
 test_target_ready_fails_when_target_absent
