@@ -391,8 +391,10 @@ fm_backend_cmux_resolve_created_workspace() {  # <ref-or-empty> <title>
 # already be the default (finding: workspace/surface/pane create all default
 # focus to false) - no focus-restore dance is needed, unlike zellij. When
 # creation succeeds but resolution fails, the new workspace is closed (by its
-# resolved uuid, or by its printed ref when only that was captured) before
-# returning so a retry is not refused on its leftover duplicate title.
+# resolved uuid, by its printed ref, or - when no ref was printed - by one
+# final title lookup) before returning so a retry is not refused on its
+# leftover duplicate title; if even that lookup misses, the error names the
+# leftover title so it can be closed by hand.
 # Echoes "<workspace_id> <surface_id>" on success.
 fm_backend_cmux_create_task() {  # <label> <cwd>
   local label=$1 cwd=$2 title dup out ref wsid sfid
@@ -408,7 +410,13 @@ fm_backend_cmux_create_task() {  # <label> <cwd>
   }
   ref=$(fm_backend_cmux_created_workspace_ref "$out")
   wsid=$(fm_backend_cmux_resolve_created_workspace "$ref" "$title") || {
-    [ -z "$ref" ] || fm_backend_cmux_close_workspace "$ref"
+    wsid=$ref
+    [ -n "$wsid" ] || wsid=$(fm_backend_cmux_workspace_id_for_label "$title")
+    if [ -z "$wsid" ]; then
+      echo "error: could not resolve a cmux workspace id for '$title' after creation; close the leftover cmux workspace '$title' by hand" >&2
+      return 1
+    fi
+    fm_backend_cmux_close_workspace "$wsid"
     echo "error: could not resolve a cmux workspace id for '$title' after creation" >&2
     return 1
   }
