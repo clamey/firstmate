@@ -363,13 +363,11 @@ fm_backend_cmux_created_workspace_ref() {  # <new-workspace-output>
 # scoped title. Verified live race: a title lookup immediately after
 # new-workspace can return empty while cmux is still registering the custom
 # title, and succeeds about half a second later, so both lookups are retried
-# a bounded number of times (FM_BACKEND_CMUX_CREATE_RESOLVE_ATTEMPTS, 0.2s
-# apart, default 15).
+# up to 15 times, 0.2s apart.
 fm_backend_cmux_resolve_created_workspace() {  # <ref-or-empty> <title>
-  local ref=$1 title=$2 attempts i wsid
-  attempts=${FM_BACKEND_CMUX_CREATE_RESOLVE_ATTEMPTS:-15}
+  local ref=$1 title=$2 i wsid
   i=0
-  while [ "$i" -lt "$attempts" ]; do
+  while [ "$i" -lt 15 ]; do
     [ "$i" -eq 0 ] || sleep 0.2
     wsid=
     [ -z "$ref" ] || wsid=$(fm_backend_cmux_workspace_id_for_ref "$ref")
