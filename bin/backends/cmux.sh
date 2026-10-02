@@ -359,21 +359,19 @@ fm_backend_cmux_created_workspace_ref() {  # <new-workspace-output>
 }
 
 # fm_backend_cmux_resolve_created_workspace: the uuid of the workspace just
-# created, by the ref cmux printed at creation, or by the scoped title only
-# when no ref was printed. Verified live race: a title lookup immediately after
-# new-workspace can return empty while cmux is still registering the custom
-# title, and succeeds about half a second later, so the lookup is retried up
-# to 15 times, 0.2s apart.
+# created, by the ref cmux printed at creation, falling back to the scoped
+# title when no ref was printed or the ref does not resolve. Verified live
+# race: a title lookup immediately after new-workspace can return empty while
+# cmux is still registering the custom title, and succeeds about half a second
+# later, so the lookups are retried up to 15 times, 0.2s apart.
 fm_backend_cmux_resolve_created_workspace() {  # <ref-or-empty> <title>
   local ref=$1 title=$2 i wsid
   i=0
   while [ "$i" -lt 15 ]; do
     [ "$i" -eq 0 ] || sleep 0.2
-    if [ -n "$ref" ]; then
-      wsid=$(fm_backend_cmux_workspace_id_for_ref "$ref")
-    else
-      wsid=$(fm_backend_cmux_workspace_id_for_label "$title")
-    fi
+    wsid=
+    [ -z "$ref" ] || wsid=$(fm_backend_cmux_workspace_id_for_ref "$ref")
+    [ -n "$wsid" ] || wsid=$(fm_backend_cmux_workspace_id_for_label "$title")
     if [ -n "$wsid" ]; then
       printf '%s' "$wsid"
       return 0
@@ -384,14 +382,15 @@ fm_backend_cmux_resolve_created_workspace() {  # <ref-or-empty> <title>
 }
 
 # fm_backend_cmux_abandon_created_workspace: report a failed create_task and
-# close the workspace it created - but only by an id or ref derived from what
-# new-workspace printed. A title lookup is never trusted for a close: cmux does
-# not enforce unique titles, so it could match another client's workspace.
-# Without one, nothing is closed and the error names the leftover title.
-fm_backend_cmux_abandon_created_workspace() {  # <owned-id-or-ref-or-empty> <title> <reason>
-  local owned=$1 title=$2 reason=$3
-  if [ -n "$owned" ]; then
-    fm_backend_cmux_close_workspace "$owned"
+# close the workspace it created - but only by the ref new-workspace printed
+# (close-workspace accepts `workspace:<n>`). A title lookup is never trusted
+# for a close: cmux does not enforce unique titles, so it could match another
+# client's workspace. Without a printed ref, nothing is closed and the error
+# names the leftover title.
+fm_backend_cmux_abandon_created_workspace() {  # <ref-or-empty> <title> <reason>
+  local ref=$1 title=$2 reason=$3
+  if [ -n "$ref" ]; then
+    fm_backend_cmux_close_workspace "$ref"
     echo "error: $reason" >&2
   else
     echo "error: $reason; close the leftover cmux workspace '$title' by hand" >&2
@@ -412,7 +411,7 @@ fm_backend_cmux_abandon_created_workspace() {  # <owned-id-or-ref-or-empty> <tit
 # leftover duplicate title (fm_backend_cmux_abandon_created_workspace).
 # Echoes "<workspace_id> <surface_id>" on success.
 fm_backend_cmux_create_task() {  # <label> <cwd>
-  local label=$1 cwd=$2 title dup out ref wsid sfid owned
+  local label=$1 cwd=$2 title dup out ref wsid sfid
   title=$(fm_backend_cmux_scoped_title "$label")
   dup=$(fm_backend_cmux_workspace_id_for_label "$title")
   if [ -n "$dup" ]; then
@@ -431,10 +430,7 @@ fm_backend_cmux_create_task() {  # <label> <cwd>
   }
   sfid=$(fm_backend_cmux_surface_id_for_workspace "$wsid")
   [ -n "$sfid" ] || {
-    # With a printed ref, wsid was resolved from it; without one, from the title.
-    owned=
-    [ -z "$ref" ] || owned=$wsid
-    fm_backend_cmux_abandon_created_workspace "$owned" "$title" \
+    fm_backend_cmux_abandon_created_workspace "$ref" "$title" \
       "could not resolve the default surface for cmux workspace '$title' ($wsid)"
     return 1
   }
