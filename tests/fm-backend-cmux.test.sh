@@ -551,7 +551,7 @@ test_create_task_closes_unresolved_workspace() {
   printf '{"workspaces":[]}' > "$dir/responses/1.out"
   printf 'OK workspace:41\n' > "$dir/responses/2.out"
   fb=$(make_cmux_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" FM_BACKEND_CMUX_CREATE_RESOLVE_ATTEMPTS=2 \
+  out=$( PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" \
     bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_create_task fm-lost /tmp/proj' "$ROOT" 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "create_task should fail when the new workspace never resolves"
