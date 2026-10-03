@@ -1,0 +1,3 @@
+ok - fm_backend_cmux_create_task: refuses a duplicate workspace title (cmux's own new-workspace has no uniqueness check)
+ok - fm_backend_cmux_create_task: creates a workspace and parses workspace_id/surface_id from list responses
+not ok - create_task should resolve the workspace from the printed ref even before its title registers, got ''

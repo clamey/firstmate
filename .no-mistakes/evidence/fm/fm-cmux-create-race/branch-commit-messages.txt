@@ -1,0 +1,44 @@
+c2c01f2e
+fix(cmux): close an unresolved new workspace by its printed ref
+
+When new-workspace prints a ref that never resolves within the bounded
+retry, make a best-effort close-workspace on that ref and name the
+leftover title only if that close does not report success. A resolved
+workspace still closes through the uuid path; no printed ref still closes
+nothing.
+
+e739a996
+fix(cmux): resolve a new workspace only from its printed ref
+
+Drop the title-lookup fallback (captain decision): cmux titles are not
+unique, so a concurrent client's workspace could match. Without a usable
+ref, spawn fails, closes nothing, and names the leftover title. A surface
+failure now closes the ref-resolved workspace by uuid through the normal
+close path, keeping the last-workspace-in-window safeguard.
+
+1d9d16c6
+fix(cmux): fall back to the title when a printed ref does not resolve
+
+Each bounded resolve attempt now tries the printed ref, then the scoped
+title. A failed create closes only through the printed ref, never a
+workspace found by title.
+
+d3c04d36
+fix(cmux): never close a failed-create workspace found only by title
+
+cmux does not enforce unique titles, so a title lookup after a failed
+create can match another client's workspace. Close only via the ref
+new-workspace printed (and the uuid resolved from it); without a ref,
+close nothing and name the leftover title for manual cleanup.
+
+b3fe62dd
+fix(cmux): close or name a no-ref workspace whose title registers late
+
+d65e08cd
+no-mistakes(review): Hardcode cmux create-resolve retry bound, drop env knob
+
+6c993ed4
+fix(cmux): resolve a new workspace from its printed ref instead of a racing title lookup
+
+new-workspace prints the created workspace's ref (OK workspace:<n>); map it to the uuid via workspace list --id-format both, retrying ref and title lookups a bounded number of times. Close the just-created workspace when its id or surface never resolves so a retry is not refused on a leftover duplicate title.
+
