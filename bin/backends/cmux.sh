@@ -4,7 +4,8 @@
 # Design: data/cmux-backend-feasibility-c7/report.md (adapter design sketch,
 # section 4) plus the live-app verification pass recorded in
 # docs/cmux-backend.md (real cmux 0.64.17, macOS aarch64, 2026-07-03; the
-# enforced minimum is 0.64.25, where the printed create ref was verified). cmux is
+# enforced minimum is 0.64.25, where the printed create ref was verified; also
+# verified on 0.65.0). cmux is
 # a session provider ONLY, exactly like herdr/zellij: the worktree provider
 # stays treehouse. Sourced only through bin/fm-backend.sh's fm_backend_source
 # in normal operation; the unit tests source it directly.
