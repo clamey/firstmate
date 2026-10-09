@@ -1,0 +1,3 @@
+ok - fm_backend_cmux_version_check: accepts the verified minimum (0.64.25)
+ok - fm_backend_cmux_version_check: accepts newer patch, minor, and major versions
+not ok - version_check should refuse 0.64.24 (below the 0.64.25 minimum)

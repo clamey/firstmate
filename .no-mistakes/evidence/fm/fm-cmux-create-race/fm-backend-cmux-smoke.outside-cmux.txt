@@ -1,0 +1,1 @@
+skip: cmux socket not reachable/authenticated (state=denied) - see docs/cmux-backend.md 'Setup'

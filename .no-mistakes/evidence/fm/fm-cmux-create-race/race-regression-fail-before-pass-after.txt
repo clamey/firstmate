@@ -1,0 +1,7 @@
+== race regression test against BASE bin/backends/cmux.sh (b75658b6)
+error: could not resolve a cmux workspace id for 'fm-firstmate-a3fe3449-reftask' after creation
+not ok - create_task should resolve the workspace from the printed ref even before its title registers, got ''
+rc=1
+== same test against HEAD bin/backends/cmux.sh (4f112877)
+ok - fm_backend_cmux_create_task: resolves the new workspace from the ref new-workspace prints, not a racing title lookup
+rc=0

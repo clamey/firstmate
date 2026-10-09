@@ -1,0 +1,4 @@
+== real cmux binary: cmux 0.65.0 (108) [dda24fbd2]
+version_check rc=0
+== real cmux socket ping (from a process outside cmux):
+Error: ERROR: Access denied - only processes started inside cmux can connect
