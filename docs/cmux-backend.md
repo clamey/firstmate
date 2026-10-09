@@ -11,7 +11,7 @@ cmux is macOS-only, GUI-first, and unsuitable for a headless or SSH-only Firstma
 
 Prerequisites:
 
-- cmux 0.64 or newer, installed from [cmux.com](https://cmux.com) or with `brew install --cask cmux`.
+- cmux 0.64.25 or newer, installed from [cmux.com](https://cmux.com) or with `brew install --cask cmux`.
 - `jq` for JSON responses.
 - The universal harness and toolchain requirements in [`configuration.md`](configuration.md#toolchain).
 

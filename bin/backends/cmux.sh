@@ -3,7 +3,8 @@
 #
 # Design: data/cmux-backend-feasibility-c7/report.md (adapter design sketch,
 # section 4) plus the live-app verification pass recorded in
-# docs/cmux-backend.md (real cmux 0.64.17, macOS aarch64, 2026-07-03). cmux is
+# docs/cmux-backend.md (real cmux 0.64.17, macOS aarch64, 2026-07-03; the
+# enforced minimum is 0.64.25, where the printed create ref was verified). cmux is
 # a session provider ONLY, exactly like herdr/zellij: the worktree provider
 # stays treehouse. Sourced only through bin/fm-backend.sh's fm_backend_source
 # in normal operation; the unit tests source it directly.
@@ -120,9 +121,12 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # shellcheck source=bin/fm-composer-lib.sh
 . "$FM_BACKEND_CMUX_ROOT/bin/fm-composer-lib.sh"
 
-# Verified minimum: the version the live pass ran against (docs/cmux-backend.md).
+# Verified minimum: the first version where new-workspace's printed
+# `OK workspace:<n>` ref was verified live (docs/cmux-backend.md). Spawn
+# resolves the new workspace only from that ref, so the floor is patch-level.
 FM_BACKEND_CMUX_MIN_MAJOR=0
 FM_BACKEND_CMUX_MIN_MINOR=64
+FM_BACKEND_CMUX_MIN_PATCH=25
 
 # fm_backend_cmux_bin: resolve the cmux CLI binary. cmux does not reliably
 # land on PATH after a plain app install - it ships an OPTIONAL "install CLI"
@@ -188,7 +192,7 @@ fm_backend_cmux_cli() {  # <cmux-subcommand-and-args...>
 # separate from reachability/auth (fm_backend_cmux_ping_state below).
 fm_backend_cmux_version_check() {
   fm_backend_cmux_tool_check || return 1
-  local raw ver major rest minor
+  local raw ver major rest minor patch
   raw=$(fm_backend_cmux_cli version 2>/dev/null) || { echo "error: 'cmux version' failed; is cmux installed correctly?" >&2; return 1; }
   ver=$(printf '%s' "$raw" | awk '{print $2}')
   case "$ver" in
@@ -200,13 +204,20 @@ fm_backend_cmux_version_check() {
   major=${ver%%.*}
   rest=${ver#*.}
   minor=${rest%%.*}
+  patch=0
+  case "$rest" in *.*) rest=${rest#*.}; patch=${rest%%.*} ;; esac
   case "$major" in ''|*[!0-9]*) major=0 ;; esac
   case "$minor" in ''|*[!0-9]*) minor=0 ;; esac
-  if [ "$major" -lt "$FM_BACKEND_CMUX_MIN_MAJOR" ] || { [ "$major" -eq "$FM_BACKEND_CMUX_MIN_MAJOR" ] && [ "$minor" -lt "$FM_BACKEND_CMUX_MIN_MINOR" ]; }; then
-    echo "error: cmux $ver is older than the verified minimum $FM_BACKEND_CMUX_MIN_MAJOR.$FM_BACKEND_CMUX_MIN_MINOR; update cmux before using backend=cmux" >&2
-    return 1
+  case "$patch" in ''|*[!0-9]*) patch=0 ;; esac
+  if [ "$major" -ne "$FM_BACKEND_CMUX_MIN_MAJOR" ]; then
+    [ "$major" -gt "$FM_BACKEND_CMUX_MIN_MAJOR" ] && return 0
+  elif [ "$minor" -ne "$FM_BACKEND_CMUX_MIN_MINOR" ]; then
+    [ "$minor" -gt "$FM_BACKEND_CMUX_MIN_MINOR" ] && return 0
+  elif [ "$patch" -ge "$FM_BACKEND_CMUX_MIN_PATCH" ]; then
+    return 0
   fi
-  return 0
+  echo "error: cmux $ver is older than the verified minimum $FM_BACKEND_CMUX_MIN_MAJOR.$FM_BACKEND_CMUX_MIN_MINOR.$FM_BACKEND_CMUX_MIN_PATCH; update cmux before using backend=cmux" >&2
+  return 1
 }
 
 # fm_backend_cmux_ping_state: classify socket reachability/auth from `cmux

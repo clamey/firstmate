@@ -1913,7 +1913,7 @@ The fake-Orca suite covers readiness, registration, create response parsing, met
 
 ## cmux
 
-The current compatibility floor is cmux 0.64, and the active live evidence uses 0.64.17 build 97 on macOS aarch64.
+The current compatibility floor is cmux 0.64.25, the version where the printed `new-workspace` ref was verified, and the active live evidence uses 0.64.17 build 97 on macOS aarch64.
 Real tests use only exact `fm-test-` workspaces guarded by `tests/cmux-test-safety.sh` and never quit or relaunch the captain's app.
 
 ```sh

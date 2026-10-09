@@ -45,7 +45,7 @@ COUNT_FILE="$RESP/.count"
 } >> "$LOG"
 
 if [ "${1:-}" = version ]; then
-  printf 'cmux %s (97) [abcdef1]\n' "${FM_CMUX_FAKE_VERSION:-0.64.17}"
+  printf 'cmux %s (97) [abcdef1]\n' "${FM_CMUX_FAKE_VERSION:-0.64.25}"
   exit 0
 fi
 if [ "${1:-}" = ping ]; then
@@ -159,34 +159,38 @@ test_version_check_accepts_current_version() {
   local dir fb status
   dir="$TMP_ROOT/version-ok"; mkdir -p "$dir/responses"
   fb=$(make_cmux_fakebin "$dir")
-  PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" FM_CMUX_FAKE_VERSION=0.64.17 \
+  PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" FM_CMUX_FAKE_VERSION=0.64.25 \
     bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_version_check' "$ROOT"
   status=$?
-  expect_code 0 "$status" "version_check should accept 0.64.17 (the verified minimum)"
-  pass "fm_backend_cmux_version_check: accepts the verified minimum (0.64.17)"
+  expect_code 0 "$status" "version_check should accept 0.64.25 (the verified minimum)"
+  pass "fm_backend_cmux_version_check: accepts the verified minimum (0.64.25)"
 }
 
 test_version_check_accepts_newer_version() {
-  local dir fb status
-  dir="$TMP_ROOT/version-newer"; mkdir -p "$dir/responses"
-  fb=$(make_cmux_fakebin "$dir")
-  PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" FM_CMUX_FAKE_VERSION=0.70.0 \
-    bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_version_check' "$ROOT"
-  status=$?
-  expect_code 0 "$status" "version_check should accept a newer minor (0.70.0)"
-  pass "fm_backend_cmux_version_check: accepts a newer version (0.70.0)"
+  local dir fb status v
+  for v in 0.64.26 0.65.0 0.70.0 1.0.0; do
+    dir="$TMP_ROOT/version-newer-$v"; mkdir -p "$dir/responses"
+    fb=$(make_cmux_fakebin "$dir")
+    PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" FM_CMUX_FAKE_VERSION=$v \
+      bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_version_check' "$ROOT"
+    status=$?
+    expect_code 0 "$status" "version_check should accept $v (newer than 0.64.25)"
+  done
+  pass "fm_backend_cmux_version_check: accepts newer patch, minor, and major versions"
 }
 
 test_version_check_refuses_old_version() {
-  local dir fb out status
-  dir="$TMP_ROOT/version-old"; mkdir -p "$dir/responses"
-  fb=$(make_cmux_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" FM_CMUX_FAKE_VERSION=0.50.0 \
-    bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_version_check' "$ROOT" 2>&1 )
-  status=$?
-  [ "$status" -ne 0 ] || fail "version_check should refuse 0.50.0 (below the 0.64 minimum)"
-  assert_contains "$out" "0.50.0" "version_check error did not name the rejected version"
-  pass "fm_backend_cmux_version_check: refuses an old version loudly"
+  local dir fb out status v
+  for v in 0.64.24 0.64.17 0.64 0.50.0; do
+    dir="$TMP_ROOT/version-old-$v"; mkdir -p "$dir/responses"
+    fb=$(make_cmux_fakebin "$dir")
+    out=$( PATH="$fb:$PATH" FM_CMUX_LOG="$dir/log" FM_CMUX_RESPONSES="$dir/responses" FM_CMUX_FAKE_VERSION=$v \
+      bash -c '. "$0/bin/backends/cmux.sh"; fm_backend_cmux_version_check' "$ROOT" 2>&1 )
+    status=$?
+    [ "$status" -ne 0 ] || fail "version_check should refuse $v (below the 0.64.25 minimum)"
+    assert_contains "$out" "cmux $v is older than the verified minimum 0.64.25" "version_check error did not name $v and the 0.64.25 minimum"
+  done
+  pass "fm_backend_cmux_version_check: refuses versions below 0.64.25 at patch level, including 0.64.24"
 }
 
 test_version_check_refuses_missing_cmux() {
