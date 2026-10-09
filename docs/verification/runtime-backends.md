@@ -1971,8 +1971,8 @@ The real smoke proves socket access, fresh readiness, current-path probing, send
 
 Verified on 2026-10-09 with cmux 0.65.0 build 108 on macOS 26.7.1 arm64, run from a terminal inside the cmux app with only `fm-test-` workspaces, each closed through the guarded close.
 `new-workspace --name <title> --cwd <dir> --focus false --id-format uuids` printed `OK workspace:<n>` on every create.
-Upstream main's title-lookup create path succeeded 3 of 3 attempts, and a title lookup immediately after `new-workspace` already returned the new workspace id.
-This branch's create path resolved the new workspace from the printed ref and returned workspace and surface ids on 3 of 3 attempts.
+The earlier title-lookup create path (then on main) succeeded 3 of 3 attempts, and a title lookup immediately after `new-workspace` already returned the new workspace id.
+The printed-ref create path returned workspace and surface ids on 3 of 3 attempts.
 `tests/fm-backend-cmux-smoke.test.sh` passed 12 of 12 checks.
 The post-create title-lookup race observed on 0.64.25 on 2026-10-02 did not reproduce on 0.65.0.
 The 0.64.25 floor stays because it is the earliest version where the printed ref is verified; cmux's changelog does not say when `new-workspace` began printing it.
